@@ -28,7 +28,7 @@
 - Retorna `False` si vacío, con espacios, o caracteres especiales
 - `pytest -q tests/test_core.py::test_validate_habit_name` pasa 100%
 
-### ☐ T3: core.register_habit()
+### ☑ T3: core.register_habit()
 **Dependencia**: T2 (validate)  
 **RF**: RF-1, RF-2, RF-3  
 **Duración**: ~15 min  
@@ -38,7 +38,7 @@
 - 2x register mismo nombre = idempotencia (no error)
 - `pytest -q tests/test_core.py::test_register_habit` pasa
 
-### ☐ T4: core.mark_habit() — parte 1: Sin hueco
+### ☑ T4: core.mark_habit() — parte 1: Sin hueco
 **Dependencia**: T3 (register)  
 **RF**: RF-2, RF-4, RF-5  
 **Duración**: ~20 min  
@@ -49,7 +49,7 @@
 - Agrega `HabitRecord(name, timestamp)` a `registry.records`
 - `pytest -q tests/test_core.py::test_mark_habit_no_gap` pasa
 
-### ☐ T5: core.mark_habit() — parte 2: Detección de hueco
+### ☑ T5: core.mark_habit() — parte 2: Detección de hueco
 **Dependencia**: T4 (mark sin hueco)  
 **RF**: RF-6  
 **Duración**: ~15 min  
@@ -59,7 +59,7 @@
 - `pytest -q tests/test_core.py::test_mark_habit_with_gap` pasa
 - Caso: last_marked=2 días atrás, mark hoy → streak reinicia
 
-### ☐ T6: core.calculate_streak() + list_habits()
+### ☑ T6: core.calculate_streak() + list_habits()
 **Dependencia**: T5 (mark completo)  
 **RF**: RF-5, RF-7  
 **Duración**: ~10 min  
@@ -68,7 +68,7 @@
 - `list_habits(registry)` retorna `[(name, streak, last_marked), ...]`
 - `pytest -q tests/test_core.py::test_calculate_streak tests/test_core.py::test_list_habits` pasa
 
-### ☐ T7: core.get_history()
+### ☑ T7: core.get_history()
 **Dependencia**: T6 (list_habits)  
 **RF**: RF-8  
 **Duración**: ~10 min  
@@ -81,7 +81,7 @@
 
 ## FASE 3: Persistencia
 
-### ☐ T8: storage.py — load_registry()
+### ☑ T8: storage.py — load_registry()
 **Dependencia**: T1 (models)  
 **RF**: RF-10  
 **Duración**: ~15 min  
@@ -91,7 +91,7 @@
 - Si JSON inválido → lanza `JSONDecodeError` (no silent fallback)
 - `pytest -q tests/test_storage.py::test_load_nonexistent tests/test_storage.py::test_load_corrupted` pasa
 
-### ☐ T9: storage.py — save_registry()
+### ☑ T9: storage.py — save_registry()
 **Dependencia**: T8 (load)  
 **RF**: RF-10  
 **Duración**: ~15 min  
@@ -105,7 +105,7 @@
 
 ## FASE 4: CLI
 
-### ☐ T10: cli.py — comando `register`
+### ☑ T10: cli.py — comando `register`
 **Dependencia**: T7 (core completo) + T9 (storage)  
 **RF**: RF-1, RF-2, RF-3, RF-7, RF-9  
 **Duración**: ~20 min  
@@ -116,7 +116,7 @@
 - Imprime con `core.list_habits()` (tabla)
 - `pytest -q tests/test_cli.py::test_register_flow` pasa
 
-### ☐ T11: cli.py — comando `mark`
+### ☑ T11: cli.py — comando `mark`
 **Dependencia**: T10 (register)  
 **RF**: RF-4, RF-6, RF-7  
 **Duración**: ~15 min  
@@ -128,7 +128,7 @@
 - Error si hábito no existe (mensaje en español)
 - `pytest -q tests/test_cli.py::test_mark_flow` pasa
 
-### ☐ T12: cli.py — comando `list`
+### ☑ T12: cli.py — comando `list`
 **Dependencia**: T11 (mark)  
 **RF**: RF-7  
 **Duración**: ~10 min  
@@ -139,7 +139,7 @@
 - Maneja lista vacía sin error
 - `pytest -q tests/test_cli.py::test_list_output` pasa
 
-### ☐ T13: cli.py — comando `history`
+### ☑ T13: cli.py — comando `history`
 **Dependencia**: T12 (list)  
 **RF**: RF-8  
 **Duración**: ~10 min  
@@ -153,7 +153,7 @@
 
 ## FASE 5: Validación y Cobertura
 
-### ☐ T14: test_core.py completo
+### ☑ T14: test_core.py completo
 **Dependencia**: T7 (core completo)  
 **RF**: RF-1 a RF-9  
 **Duración**: ~25 min  
@@ -163,7 +163,7 @@
 - Cobertura ≥95% para `core.py`
 - Incluye: validación, register, mark (sin hueco, con hueco), calculate, list, history
 
-### ☐ T15: test_storage.py completo
+### ☑ T15: test_storage.py completo
 **Dependencia**: T9 (storage completo)  
 **RF**: RF-10  
 **Duración**: ~15 min  
@@ -174,7 +174,7 @@
 - Missing fields → excepción
 - `pytest -q tests/test_storage.py -v` pasa 100%
 
-### ☐ T16: test_cli.py completo
+### ☑ T16: test_cli.py completo
 **Dependencia**: T13 (CLI completo)  
 **RF**: RF-1 a RF-10  
 **Duración**: ~25 min  
@@ -184,7 +184,7 @@
 - Valida handling de permisos I/O
 - `pytest -q tests/test_cli.py -v` pasa 100%
 
-### ☐ T17: Validación Final
+### ☑ T17: Validación Final
 **Dependencia**: T14, T15, T16 (todos los tests)  
 **RF**: Todos  
 **Duración**: ~10 min  
