@@ -1,189 +1,273 @@
-"""Tests del núcleo puro (T3-T6 — RF-1..RF-8, RF-10)."""
-
-from datetime import date
-
 import pytest
-from habits import core
-
-TODAY = date(2026, 8, 27)
-
-
-def empty_data() -> dict:
-    return {"version": 1, "habits": []}
-
-
-def data_with(name: str, completions: list[str]) -> dict:
-    return {
-        "version": 1,
-        "habits": [
-            {"name": name, "created_at": "2026-08-01", "completions": list(completions)}
-        ],
-    }
+from datetime import date, datetime, timedelta
+from habits.core import (
+    validate_habit_name,
+    register_habit,
+    calculate_streak,
+    get_records_for_habit,
+)
+from habits.models import Registry, HabitRecord, Habit
 
 
-# --- T3: add_habit (RF-1, RF-2, RF-3) ---------------------------------------
+# ============================================================================
+# RF-9: Validación de nombres
+# ============================================================================
 
 
-def test_add_habit_creates_it_with_creation_date():
-    """RF-1: un nombre nuevo y no vacío crea el hábito."""
-    data = core.add_habit(empty_data(), "Estudiar Python", today=TODAY)
+def test_validate_habit_name_valid():
+    assert validate_habit_name("Ejercicio") is True
+    assert validate_habit_name("Lectura123") is True
+    assert validate_habit_name("A") is True
+    assert validate_habit_name("Z9z") is True
 
-    assert data["habits"] == [
-        {
-            "name": "Estudiar Python",
-            "created_at": "2026-08-27",
-            "completions": [],
-        }
+
+def test_validate_habit_name_empty():
+    assert validate_habit_name("") is False
+
+
+def test_validate_habit_name_with_spaces():
+    assert validate_habit_name("Ejercicio matutino") is False
+    assert validate_habit_name("Leer libros") is False
+
+
+def test_validate_habit_name_with_special_chars():
+    assert validate_habit_name("Ejercicio!") is False
+    assert validate_habit_name("Lectura-123") is False
+    assert validate_habit_name("Hábito@") is False
+    assert validate_habit_name("Yoga (mañana)") is False
+
+
+def test_validate_habit_name_max_length():
+    # 100 caracteres alfanuméricos válido
+    assert validate_habit_name("A" * 100) is True
+    # 101 caracteres inválido
+    assert validate_habit_name("A" * 101) is False
+
+
+def test_validate_habit_name_unicode():
+    # No alfanuméricos ASCII
+    assert validate_habit_name("Élite") is False
+    assert validate_habit_name("日本語") is False
+
+
+# ============================================================================
+# RF-1: Registrar hábito
+# ============================================================================
+
+
+def test_register_habit_creates_new_habit():
+    """Registrar un nuevo hábito lo persiste con streak=1."""
+    registry = Registry()
+    today = date(2026, 10, 7)
+
+    result = register_habit(registry, "Ejercicio", today)
+
+    assert result is True
+    assert "Ejercicio" in registry.habits
+    assert registry.habits["Ejercicio"].streak == 1
+    assert registry.habits["Ejercicio"].last_marked == today
+
+
+def test_register_habit_creates_record():
+    """Registrar un hábito crea un HabitRecord."""
+    registry = Registry()
+    today = date(2026, 10, 7)
+
+    register_habit(registry, "Lectura", today)
+
+    assert len(registry.records) == 1
+    assert registry.records[0].name == "Lectura"
+    assert registry.records[0].timestamp.date() == today
+
+
+def test_register_habit_invalid_name_raises():
+    """Registrar con nombre inválido lanza error."""
+    registry = Registry()
+    today = date(2026, 10, 7)
+
+    with pytest.raises(ValueError):
+        register_habit(registry, "Ejercicio!", today)
+
+    with pytest.raises(ValueError):
+        register_habit(registry, "", today)
+
+
+# ============================================================================
+# RF-2: Idempotencia de registro
+# ============================================================================
+
+
+def test_register_same_habit_same_day_idempotent():
+    """Registrar el mismo hábito 2x el mismo día ignora el segundo (idempotencia)."""
+    registry = Registry()
+    today = date(2026, 10, 7)
+
+    result1 = register_habit(registry, "Ejercicio", today)
+    result2 = register_habit(registry, "Ejercicio", today)
+
+    assert result1 is True  # Primera vez registra
+    assert result2 is False  # Segunda vez ignora
+
+    # Solo un registro en la lista
+    ejercicio_records = [r for r in registry.records if r.name == "Ejercicio"]
+    assert len(ejercicio_records) == 1
+
+    # Streak sigue siendo 1
+    assert registry.habits["Ejercicio"].streak == 1
+
+
+# ============================================================================
+# RF-3: Múltiples hábitos por día
+# ============================================================================
+
+
+def test_register_different_habits_same_day():
+    """Registrar 2 hábitos diferentes el mismo día ambos se guardan."""
+    registry = Registry()
+    today = date(2026, 10, 7)
+
+    result1 = register_habit(registry, "Ejercicio", today)
+    result2 = register_habit(registry, "Lectura", today)
+
+    assert result1 is True
+    assert result2 is True
+
+    assert len(registry.habits) == 2
+    assert len(registry.records) == 2
+    assert "Ejercicio" in registry.habits
+    assert "Lectura" in registry.habits
+
+
+# ============================================================================
+# RF-5: Calcular racha consecutiva
+# ============================================================================
+
+
+def test_calculate_streak_empty_records():
+    """Racha vacía = 0."""
+    today = date(2026, 10, 7)
+    assert calculate_streak([], today) == 0
+
+
+def test_calculate_streak_single_day_today():
+    """Un registro hoy = racha de 1."""
+    today = date(2026, 10, 7)
+    records = [HabitRecord(name="Test", timestamp=datetime(2026, 10, 7, 8, 0))]
+
+    assert calculate_streak(records, today) == 1
+
+
+def test_calculate_streak_single_day_yesterday():
+    """Un registro ayer = racha de 1 (ayer está dentro del rango)."""
+    today = date(2026, 10, 7)
+    yesterday = date(2026, 10, 6)
+    records = [HabitRecord(name="Test", timestamp=datetime(2026, 10, 6, 8, 0))]
+
+    assert calculate_streak(records, today) == 1
+
+
+def test_calculate_streak_gap_two_days():
+    """Último registro hace 2+ días = racha 0."""
+    today = date(2026, 10, 7)
+    two_days_ago = date(2026, 10, 5)
+    records = [HabitRecord(name="Test", timestamp=datetime(2026, 10, 5, 8, 0))]
+
+    assert calculate_streak(records, today) == 0
+
+
+def test_calculate_streak_consecutive_3_days():
+    """Registros en 3 días consecutivos = racha 3."""
+    today = date(2026, 10, 7)
+    records = [
+        HabitRecord(name="Test", timestamp=datetime(2026, 10, 5, 8, 0)),
+        HabitRecord(name="Test", timestamp=datetime(2026, 10, 6, 10, 0)),
+        HabitRecord(name="Test", timestamp=datetime(2026, 10, 7, 9, 0)),
     ]
 
-
-def test_add_habit_keeps_the_original_name_for_display():
-    """RF-2: se conserva el nombre tal y como lo escribió el usuario."""
-    data = core.add_habit(empty_data(), "  Estudiar Python  ", today=TODAY)
-
-    assert data["habits"][0]["name"] == "Estudiar Python"
+    assert calculate_streak(records, today) == 3
 
 
-def test_add_habit_rejects_duplicate_ignoring_case_and_spaces():
-    """RF-2: la comparación ignora mayúsculas y espacios exteriores."""
-    data = core.add_habit(empty_data(), "Estudiar Python", today=TODAY)
-
-    with pytest.raises(core.DuplicateHabitError):
-        core.add_habit(data, "  estudiar PYTHON  ", today=TODAY)
-
-    assert len(data["habits"]) == 1
-
-
-@pytest.mark.parametrize("name", ["", "   ", "\t\n"])
-def test_add_habit_rejects_empty_names(name):
-    """RF-3: nombre vacío o solo espacios se rechaza."""
-    with pytest.raises(core.EmptyNameError):
-        core.add_habit(empty_data(), name, today=TODAY)
-
-
-# --- T4: mark_done (RF-4, RF-5, RF-6) ---------------------------------------
-
-
-def test_mark_done_registers_the_injected_date():
-    """RF-4: se registra la fecha de hoy como completada."""
-    data, already_done = core.mark_done(data_with("Leer", []), "Leer", today=TODAY)
-
-    assert already_done is False
-    assert data["habits"][0]["completions"] == ["2026-08-27"]
-
-
-def test_mark_done_is_idempotent():
-    """RF-5: marcar dos veces el mismo día no duplica el registro."""
-    data, _ = core.mark_done(data_with("Leer", []), "Leer", today=TODAY)
-    data, already_done = core.mark_done(data, "Leer", today=TODAY)
-
-    assert already_done is True
-    assert data["habits"][0]["completions"] == ["2026-08-27"]
-
-
-def test_mark_done_keeps_completions_sorted():
-    """El plan exige fechas ISO en orden ascendente y sin duplicados."""
-    data, _ = core.mark_done(
-        data_with("Leer", ["2026-08-26", "2026-08-25"]), "Leer", today=TODAY
-    )
-
-    assert data["habits"][0]["completions"] == [
-        "2026-08-25",
-        "2026-08-26",
-        "2026-08-27",
+def test_calculate_streak_with_gap_in_middle():
+    """Registros con gap en el medio: racha cuenta desde el final hacia atrás."""
+    today = date(2026, 10, 7)
+    records = [
+        HabitRecord(name="Test", timestamp=datetime(2026, 10, 2, 8, 0)),
+        HabitRecord(name="Test", timestamp=datetime(2026, 10, 3, 8, 0)),
+        # GAP: 10-04 y 10-05 sin registro
+        HabitRecord(name="Test", timestamp=datetime(2026, 10, 6, 8, 0)),
+        HabitRecord(name="Test", timestamp=datetime(2026, 10, 7, 8, 0)),
     ]
 
-
-def test_mark_done_finds_the_habit_ignoring_case_and_spaces():
-    """RF-2: misma normalización de nombres al marcar."""
-    data, _ = core.mark_done(data_with("Estudiar Python", []), "  ESTUDIAR python ",
-                             today=TODAY)
-
-    assert data["habits"][0]["completions"] == ["2026-08-27"]
+    # Racha = últimos 2 días consecutivos
+    assert calculate_streak(records, today) == 2
 
 
-def test_mark_done_on_unknown_habit_raises():
-    """RF-6: marcar un hábito inexistente es un error."""
-    with pytest.raises(core.HabitNotFoundError):
-        core.mark_done(empty_data(), "Nadar", today=TODAY)
-
-
-# --- T5: streak (RF-10) -----------------------------------------------------
-
-
-def test_streak_without_completions_is_zero():
-    assert core.streak([], today=TODAY) == 0
-
-
-def test_streak_of_a_single_day_done_today_is_one():
-    assert core.streak(["2026-08-27"], today=TODAY) == 1
-
-
-def test_streak_stays_alive_when_last_completion_was_yesterday():
-    """RF-10: hecho ayer pero aún no hoy conserva la racha."""
-    assert core.streak(["2026-08-25", "2026-08-26"], today=TODAY) == 2
-
-
-def test_streak_is_broken_when_last_completion_is_older_than_yesterday():
-    """RF-10: último registro anterior a ayer → racha 0."""
-    assert core.streak(["2026-08-24", "2026-08-25"], today=TODAY) == 0
-
-
-def test_long_streak_counts_only_consecutive_days():
-    """RF-10: un hueco corta el conteo hacia atrás."""
-    completions = [
-        "2026-08-01",  # anterior al hueco: no cuenta
-        "2026-08-23",
-        "2026-08-24",
-        "2026-08-25",
-        "2026-08-26",
-        "2026-08-27",
+def test_calculate_streak_multiple_entries_same_day():
+    """Múltiples registros el mismo día cuentan como 1 día."""
+    today = date(2026, 10, 7)
+    records = [
+        HabitRecord(name="Test", timestamp=datetime(2026, 10, 7, 8, 0)),
+        HabitRecord(name="Test", timestamp=datetime(2026, 10, 7, 12, 0)),
+        HabitRecord(name="Test", timestamp=datetime(2026, 10, 7, 18, 0)),
     ]
 
-    assert core.streak(completions, today=TODAY) == 5
+    assert calculate_streak(records, today) == 1
 
 
-def test_streak_tolerates_unsorted_and_repeated_dates():
-    assert core.streak(["2026-08-27", "2026-08-26", "2026-08-27"], today=TODAY) == 2
+# ============================================================================
+# RF-6: Reinicio de racha por hueco
+# ============================================================================
 
 
-# --- T6: list_habits (RF-7, RF-8) -------------------------------------------
-
-
-def test_list_habits_is_empty_when_there_are_no_habits():
-    """RF-8: sin hábitos, la lista es vacía (la CLI decide el mensaje)."""
-    assert core.list_habits(empty_data(), today=TODAY) == []
-
-
-def test_list_habits_sorts_by_streak_desc_then_name():
-    """RF-7: racha descendente y, a igualdad, nombre alfabético."""
-    data = {
-        "version": 1,
-        "habits": [
-            {"name": "Nadar", "created_at": "2026-08-01", "completions": ["2026-08-27"]},
-            {"name": "Correr", "created_at": "2026-08-01", "completions": ["2026-08-27"]},
-            {
-                "name": "Estudiar Python",
-                "created_at": "2026-08-01",
-                "completions": ["2026-08-26", "2026-08-27"],
-            },
-            {"name": "Meditar", "created_at": "2026-08-01", "completions": []},
-        ],
-    }
-
-    assert core.list_habits(data, today=TODAY) == [
-        {"name": "Estudiar Python", "streak": 2},
-        {"name": "Correr", "streak": 1},
-        {"name": "Nadar", "streak": 1},
-        {"name": "Meditar", "streak": 0},
+def test_streak_breaks_after_gap():
+    """Racha se reinicia después de >24h sin registro."""
+    today = date(2026, 10, 10)
+    records = [
+        HabitRecord(name="Test", timestamp=datetime(2026, 10, 5, 8, 0)),
+        HabitRecord(name="Test", timestamp=datetime(2026, 10, 6, 8, 0)),
+        # GAP: 10-07, 10-08, 10-09 sin registro (>24h)
+        HabitRecord(name="Test", timestamp=datetime(2026, 10, 10, 8, 0)),
     ]
 
+    # La racha actual empieza hoy, sin conexión con los días anteriores
+    assert calculate_streak(records, today) == 1
 
-def test_duplicate_error_reports_the_existing_name():
-    """RF-2: el conflicto se informa con el nombre ya guardado."""
-    data = core.add_habit(empty_data(), "Estudiar Python", today=TODAY)
 
-    with pytest.raises(core.DuplicateHabitError) as error:
-        core.add_habit(data, "  estudiar PYTHON  ", today=TODAY)
+def test_register_after_gap_resets_streak():
+    """Registrar después de un hueco reinicia la racha a 1."""
+    registry = Registry()
+    day1 = date(2026, 10, 5)
+    day2 = date(2026, 10, 6)
+    day_gap = date(2026, 10, 10)  # 3+ días después
 
-    assert error.value.args[0] == "Estudiar Python"
+    # Registrar 2 días seguidos
+    register_habit(registry, "Ejercicio", day1)
+    register_habit(registry, "Ejercicio", day2)
+    assert registry.habits["Ejercicio"].streak == 2
+
+    # Registrar después del gap
+    register_habit(registry, "Ejercicio", day_gap)
+
+    # Racha vuelve a 1
+    assert registry.habits["Ejercicio"].streak == 1
+
+
+# ============================================================================
+# Helpers
+# ============================================================================
+
+
+def test_get_records_for_habit():
+    """get_records_for_habit retorna registros en orden cronológico."""
+    registry = Registry()
+    registry.records = [
+        HabitRecord(name="Ejercicio", timestamp=datetime(2026, 10, 5, 8, 0)),
+        HabitRecord(name="Lectura", timestamp=datetime(2026, 10, 6, 8, 0)),
+        HabitRecord(name="Ejercicio", timestamp=datetime(2026, 10, 7, 8, 0)),
+    ]
+
+    ejercicio_records = get_records_for_habit(registry, "Ejercicio")
+
+    assert len(ejercicio_records) == 2
+    assert ejercicio_records[0].timestamp.date() == date(2026, 10, 5)
+    assert ejercicio_records[1].timestamp.date() == date(2026, 10, 7)

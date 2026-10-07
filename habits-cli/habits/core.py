@@ -1,123 +1,92 @@
-"""Lógica de dominio: pura, sin entrada/salida ni reloj propio.
-
-Todas las funciones reciben la fecha de hoy como parámetro (``today``) para
-poder probar las rachas sin depender del reloj del sistema.
-"""
-
-from __future__ import annotations
-
-from collections.abc import Iterable
-from datetime import date, timedelta
-from typing import Any
-
-Habit = dict[str, Any]
-Data = dict[str, Any]
+import re
+from datetime import date, datetime, timedelta
+from habits.models import Habit, HabitRecord, Registry
 
 
-class HabitError(Exception):
-    """Error de dominio; la CLI lo traduce a un mensaje en español."""
-
-
-class EmptyNameError(HabitError):
-    """El nombre está vacío o solo tiene espacios (RF-3)."""
-
-
-class DuplicateHabitError(HabitError):
-    """Ya existe un hábito con ese nombre (RF-2)."""
-
-
-class HabitNotFoundError(HabitError):
-    """No existe ningún hábito con ese nombre (RF-6)."""
-
-
-def normalize(name: str) -> str:
-    """Clave de comparación: sin espacios exteriores y sin mayúsculas (RF-2)."""
-    return name.strip().casefold()
-
-
-def _find(data: Data, name: str) -> Habit | None:
-    key = normalize(name)
-    for habit in data["habits"]:
-        if normalize(habit["name"]) == key:
-            return habit
-    return None
-
-
-def add_habit(data: Data, name: str, *, today: date) -> Data:
-    """Crea un hábito nuevo (RF-1).
-
-    Lanza ``EmptyNameError`` si el nombre está vacío (RF-3) y
-    ``DuplicateHabitError`` si ya existe uno equivalente (RF-2).
+def validate_habit_name(name: str) -> bool:
     """
-    display_name = name.strip()
-    if not display_name:
-        raise EmptyNameError(name)
+    Valida que un nombre de hábito sea alfanumérico ASCII, 1-100 caracteres.
+    Retorna True si es válido, False de lo contrario.
+    """
+    if not name or len(name) == 0 or len(name) > 100:
+        return False
+    return bool(re.match(r"^[a-zA-Z0-9]+$", name))
 
-    existing = _find(data, display_name)
-    if existing is not None:
-        raise DuplicateHabitError(existing["name"])
 
-    data["habits"].append(
-        {
-            "name": display_name,
-            "created_at": today.isoformat(),
-            "completions": [],
-        }
+def get_records_for_habit(registry: Registry, habit_name: str) -> list[HabitRecord]:
+    """Retorna todos los registros para un hábito específico, ordenados por timestamp."""
+    return sorted(
+        [r for r in registry.records if r.name == habit_name],
+        key=lambda r: r.timestamp,
     )
-    return data
 
 
-def mark_done(data: Data, name: str, *, today: date) -> tuple[Data, bool]:
-    """Marca el hábito como hecho hoy (RF-4).
-
-    Devuelve los datos y un booleano que indica si ya estaba marcado: la
-    operación es idempotente (RF-5). Lanza ``HabitNotFoundError`` si el
-    hábito no existe (RF-6).
+def calculate_streak(
+    records: list[HabitRecord], today: date
+) -> int:
     """
-    habit = _find(data, name)
-    if habit is None:
-        raise HabitNotFoundError(name.strip())
+    Calcula la racha consecutiva de días para un hábito.
 
-    stamp = today.isoformat()
-    already_done = stamp in habit["completions"]
-    if not already_done:
-        habit["completions"] = sorted({*habit["completions"], stamp})
-
-    return data, already_done
-
-
-def streak(completions: Iterable[str], *, today: date) -> int:
-    """Días consecutivos completados hasta hoy o ayer (RF-10).
-
-    Si el último registro es anterior a ayer, la racha es 0.
+    Racha = contador de días consecutivos desde hoy hacia atrás sin gaps.
+    Un gap = más de 24h sin registro (es decir, un día completo sin marcar).
     """
-    days = sorted({date.fromisoformat(stamp) for stamp in completions})
-    if not days:
+    if not records:
         return 0
 
-    last = days[-1]
-    if last < today - timedelta(days=1):
+    sorted_records = sorted(records, key=lambda r: r.timestamp)
+    last_record = sorted_records[-1]
+    last_date = last_record.timestamp.date()
+
+    # Si el último registro es de hace 2+ días, racha es 0
+    days_ago = (today - last_date).days
+    if days_ago > 1:
         return 0
 
-    count = 1
-    expected = last - timedelta(days=1)
-    for day in reversed(days[:-1]):
-        if day != expected:
+    # Racha = 1 si marcó hoy o ayer, luego buscar hacia atrás
+    streak = 1
+    current_check_date = last_date - timedelta(days=1)
+
+    for i in range(len(sorted_records) - 2, -1, -1):
+        record_date = sorted_records[i].timestamp.date()
+
+        if record_date == current_check_date:
+            streak += 1
+            current_check_date -= timedelta(days=1)
+        elif record_date < current_check_date:
+            # Gap encontrado, detenerse
             break
-        count += 1
-        expected -= timedelta(days=1)
 
-    return count
+    return streak
 
 
-def list_habits(data: Data, *, today: date) -> list[dict[str, Any]]:
-    """Hábitos con su racha, por racha descendente y nombre alfabético (RF-7).
-
-    Sin hábitos devuelve una lista vacía; el mensaje de RF-8 es cosa de la CLI.
+def register_habit(registry: Registry, name: str, today: date) -> bool:
     """
-    rows = [
-        {"name": habit["name"], "streak": streak(habit["completions"], today=today)}
-        for habit in data["habits"]
-    ]
-    rows.sort(key=lambda row: (-row["streak"], row["name"].casefold()))
-    return rows
+    Registra un hábito para hoy (RF-1, RF-2, RF-3).
+
+    Retorna True si el registro fue nuevo, False si ya existía hoy (idempotencia).
+    - Si no existe, crea con streak=1
+    - Si ya existe hoy, ignora (idempotencia)
+    - Permite múltiples hábitos diferentes el mismo día
+    """
+    if not validate_habit_name(name):
+        raise ValueError(f"Nombre de hábito inválido: {name}")
+
+    # Verificar si ya fue registrado hoy (idempotencia)
+    today_records = [r for r in registry.records if r.name == name and r.timestamp.date() == today]
+    if today_records:
+        return False  # Ya registrado hoy
+
+    # Crear/obtener hábito
+    if name not in registry.habits:
+        registry.habits[name] = Habit(name=name, streak=0, last_marked=None)
+
+    # Registrar hoy
+    registry.records.append(HabitRecord(name=name, timestamp=datetime.combine(today, datetime.min.time())))
+
+    # Recalcular racha
+    records = get_records_for_habit(registry, name)
+    streak = calculate_streak(records, today)
+    registry.habits[name].streak = streak
+    registry.habits[name].last_marked = today
+
+    return True

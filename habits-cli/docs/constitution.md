@@ -1,16 +1,20 @@
 # Constitución — habits-cli
 
-Principios innegociables. Toda spec, plan y tarea debe cumplirlos.
+## Stack & Dependencias
+1. **Python 3.12+** con type hints obligatorios en APIs públicas
+2. **Solo stdlib** (pytest exclusivamente para tests)
+3. **Persistencia JSON local** — sin bases de datos
 
-1. **Simplicidad primero**: Python 3.12+ y solo biblioteca estándar en la
-   aplicación. Única dependencia de desarrollo permitida: pytest.
-2. **La spec manda**: ningún comportamiento se implementa si no está en la
-   spec activa. Si falta una decisión, se detiene el trabajo y se pregunta.
-3. **Lógica separada de interfaz**: el núcleo (core) no imprime ni lee de
-   consola. La CLI es una capa fina. Todo el core es testeable sin la CLI.
-4. **Tests como puerta**: cada tarea termina con sus tests en verde.
-   Prohibido avanzar con tests en rojo.
-5. **Datos locales y transparentes**: persistencia en un único archivo JSON
-   legible. Nada de bases de datos ni de red.
-6. **Idioma**: código e identificadores en inglés; mensajes al usuario y
-   documentación en español.
+## Arquitectura
+4. **Núcleo puro** (`habits/core.py`) sin I/O; lógica de rachas ahí
+5. **CLI thin** (`habits/cli.py`) — mapeo de args → core
+6. **Storage agnóstico** (`habits/storage.py`) — intercambiable sin tocar core
+
+## Calidad & Tests
+7. **pytest -q pasa siempre** — gate obligatorio antes de merge
+8. **Identifiers en inglés, UX en español** — no mezclar
+9. **Spec es fuente de verdad** — no cambies JSON ni core sin spec primero
+
+## Límites
+10. **Cero breaking changes sin versionado** en formato JSON
+11. **Dependencias nuevas = rechazadas** — incluso si simplificarían código

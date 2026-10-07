@@ -1,79 +1,106 @@
-# Spec 001 — MVP de habits-cli
+# Spec: Habits MVP
 
-## Contexto y objetivo
-Los estudiantes de programación abandonan hábitos de estudio por falta de
-seguimiento. habits-cli permite registrar hábitos y ver la racha de días
-consecutivos desde la terminal, sin fricción, para reforzar la constancia.
+**Fecha**: 2026-10-02  
+**Autor**: Judith Paco  
+**Estado**: Aprobado
 
-## Usuarios
-Estudiantes y desarrolladores que viven en la terminal. Un solo usuario por
-máquina; sin cuentas ni sincronización.
+---
 
-## Historias de usuario
-- H1: Como estudiante quiero crear hábitos con un nombre para tener la lista
-  de lo que quiero trabajar cada día.
-- H2: Como estudiante quiero marcar un hábito como hecho hoy para registrar
-  mi constancia.
-- H3: Como estudiante quiero ver mis hábitos con su racha actual para
-  motivarme a no romperla.
+## Propósito
+Permitir a un usuario registrar hábitos diarios y ver rachas consecutivas de cumplimiento, con persistencia local.
 
-## Requisitos funcionales (criterios de aceptación en EARS)
+---
 
-### Crear hábito (H1)
-- RF-1: CUANDO el usuario ejecute `habits add <nombre>` con un nombre no
-  vacío que no exista, EL SISTEMA creará el hábito y lo confirmará con un
-  mensaje (salida 0).
-- RF-2: SI el nombre ya existe (comparación ignorando mayúsculas/minúsculas
-  y espacios al inicio o final), ENTONCES EL SISTEMA no creará un duplicado
-  e informará del conflicto (salida 1).
-- RF-3: SI el nombre está vacío o son solo espacios, ENTONCES EL SISTEMA
-  rechazará la orden con un mensaje de error (salida 1).
+## Requerimientos Funcionales (EARS)
 
-### Marcar como hecho (H2)
-- RF-4: CUANDO el usuario ejecute `habits done <nombre>` y el hábito exista,
-  EL SISTEMA registrará la fecha actual como completada y lo confirmará
-  (salida 0).
-- RF-5: SI el hábito ya está completado hoy, ENTONCES EL SISTEMA lo
-  comunicará sin duplicar el registro (operación idempotente, salida 0).
-- RF-6: SI el hábito no existe, ENTONCES EL SISTEMA mostrará un error
-  sugiriendo consultar `habits list` (salida 1).
+### RF-1: Registrar hábito
+**Given** un usuario abre el CLI  
+**When** ejecuta el comando de registro con nombre válido  
+**Then** el hábito se persiste y la racha inicia en 1  
+**Why** porque el usuario necesita crear un nuevo hábito para empezar a rastrearlo
 
-### Listar con rachas (H3)
-- RF-7: CUANDO el usuario ejecute `habits list`, EL SISTEMA mostrará cada
-  hábito con su racha actual en días, ordenados por racha descendente y,
-  a igualdad, por nombre alfabético (salida 0).
-- RF-8: MIENTRAS no exista ningún hábito, EL SISTEMA responderá a
-  `habits list` con un mensaje invitando a crear el primero (salida 0).
+### RF-2: Idempotencia de registro
+**Given** un hábito ya fue registrado hoy  
+**When** el usuario intenta registrar el mismo hábito nuevamente hoy  
+**Then** la operación se ignora sin error (no duplica)  
+**Why** porque queremos evitar registros múltiples del mismo hábito en un día
 
-### Reglas transversales
-- RF-9: EL SISTEMA almacenará todos los datos en un único archivo JSON local
-  legible por humanos.
-- RF-10: EL SISTEMA calculará la racha como el número de días consecutivos
-  completados cuyo último día sea hoy o ayer; si el último registro es
-  anterior a ayer, la racha es 0.
-- RF-11: SI el archivo de datos existe pero no es JSON válido, ENTONCES EL
-  SISTEMA abortará con un mensaje claro y NO sobrescribirá el archivo
-  (salida 1).
+### RF-3: Múltiples hábitos por día
+**Given** un usuario ha registrado un hábito ya  
+**When** registra un hábito *diferente* el mismo día  
+**Then** ambos se guardan sin conflicto  
+**Why** porque los usuarios necesitan rastrear varios hábitos en paralelo
 
-## Requisitos no funcionales
-- Respuesta inmediata (<1 s) en equipos modestos. Sin acceso a red.
-- Multiplataforma: macOS, Linux y Windows.
-- Mensajes al usuario en español, claros y accionables.
+### RF-4: Seleccionar hábito cumplido
+**Given** un usuario quiere marcar un hábito como completado  
+**When** ejecuta el comando de selección/cumplimiento para un hábito existente  
+**Then** ese hábito se marca registrado hoy (igual que RF-1)  
+**Why** porque es una UX alternativa al registro (sintaxis más clara)
 
-## Casos límite ya cubiertos
-- Doble `done` el mismo día → RF-5.
-- Racha con hueco de más de un día → RF-10 (racha 0).
-- Hecho ayer pero aún no hoy → RF-10 (la racha se conserva).
-- Archivo inexistente → se crea estructura vacía (parte de RF-9).
-- Archivo corrupto → RF-11.
+### RF-5: Calcular racha consecutiva
+**Given** un hábito con registro hoy  
+**When** se calcula su racha  
+**Then** racha = contador de días consecutivos desde el último registro sin huecos  
+**Why** porque la racha es la métrica core de motivación en hábitos
 
-## Fuera de alcance (MVP)
-Editar, renombrar o borrar hábitos; marcar fechas pasadas; estadísticas;
-colores; recordatorios; sincronización; interfaz TUI.
+### RF-6: Reinicio de racha por hueco
+**Given** un hábito con racha activa  
+**When** pasan 24h sin registro (un día completo sin marcar)  
+**Then** la racha se reinicia a 0 al siguiente registro  
+**Why** porque la racha mide *consecutividad* — un hueco rompe la cadena
 
-## Criterios de finalización
-- Todos los RF cubiertos por al menos un test automático y `pytest -q` en verde.
-- Demo manual del flujo add → done → list sin errores.
+### RF-7: Listar hábitos + rachas
+**Given** un usuario quiere ver su progreso  
+**When** ejecuta comando de listado  
+**Then** muestra todos los hábitos con su racha actual y último registro (fecha/hora)  
+**Why** porque necesita una vista consolidada de su estado
 
-## Dudas abiertas
-- Ninguna. (Las 6 dudas iniciales se resolvieron en la clarificación.)
+### RF-8: Ver histórico de hábito
+**Given** un usuario quiere investigar el historial de un hábito  
+**When** ejecuta comando de histórico con nombre de hábito  
+**Then** muestra todas las fechas/horas en que fue registrado, en orden cronológico  
+**Why** porque necesita auditar y entender patrones de cumplimiento
+
+### RF-9: Validar nombre de hábito
+**Given** un usuario intenta registrar un hábito  
+**When** el nombre está vacío, contiene caracteres especiales, o excede 100 caracteres  
+**Then** se rechaza con mensaje de error claro  
+**Why** porque nombres inválidos causan corrupción de datos y UX pobre
+
+### RF-10: Persistencia JSON
+**Given** hábitos registrados en sesión  
+**When** el usuario cierra el CLI  
+**Then** todos los datos se guardan en JSON local y se cargan en siguiente sesión  
+**Why** porque sin persistencia, el histórico de rachas se pierde entre ejecuciones
+
+---
+
+## Fuera de Alcance
+
+- ❌ Multi-usuario o autenticación
+- ❌ Editar/renombrar/borrar hábitos
+- ❌ Estadísticas avanzadas (max racha, % cumplimiento anual)
+- ❌ Sincronización en cloud
+- ❌ UI gráfica (solo CLI)
+- ❌ Recordatorios/notificaciones
+- ❌ Import/export de datos
+- ❌ Reset de racha manual
+
+---
+
+## Criterios de Finalización
+
+✅ `pytest -q` pasa 100% (todos los RF con cobertura)  
+✅ CLI acepta comandos: `register`, `mark`, `list`, `history`  
+✅ JSON persiste y carga correctamente en siguiente sesión  
+✅ Validación rechaza nombres inválidos  
+✅ Racha reinicia correctamente después de un hueco  
+✅ Idempotencia: registrar 2x hoy = 1 registro  
+✅ Histórico muestra orden cronológico exacto (fecha/hora)  
+✅ AGENTS.md y constitution.md son respetados (sin deps externas, type hints, UX español)
+
+---
+
+## Notas
+- Timestamp se registra en UTC o local según decisión de implementación (será spec de `storage.py`)
+- "Hueco" = 24h sin registro; se valida al comparar fecha de hoy vs última fecha guardada
